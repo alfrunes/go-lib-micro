@@ -55,6 +55,14 @@ func ExtractJWTFromHeader(r *http.Request) (jwt string, err error) {
 	return jwt, nil
 }
 
+func b64TrimTrailer(b64 string) string {
+	i := strings.LastIndexByte(b64, '=')
+	if i < 0 {
+		return b64
+	}
+	return b64[0:i]
+}
+
 // Generate identity information from given JWT by extracting subject and tenant claims.
 // Note that this function does not perform any form of token signature
 // verification.
@@ -67,7 +75,7 @@ func ExtractIdentity(token string) (id Identity, err error) {
 	if len(jwt) != 3 {
 		return id, errors.New("identity: incorrect token format")
 	}
-	claims, err = base64.RawURLEncoding.DecodeString(jwt[1])
+	claims, err = base64.RawURLEncoding.DecodeString(b64TrimTrailer(jwt[1]))
 	if err != nil {
 		return id, errors.Wrap(err,
 			"identity: failed to decode base64 JWT claims")
