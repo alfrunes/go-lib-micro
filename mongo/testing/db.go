@@ -16,10 +16,11 @@ package testing
 
 import (
 	"context"
-	"io/ioutil"
+	"flag"
+	"fmt"
 	"os"
+	"os/exec"
 
-	"github.com/mendersoftware/go-lib-micro/mongo/dbtest"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -32,30 +33,42 @@ type TestDBRunner interface {
 	CTX() context.Context
 }
 
+var (
+	mgoVersion *string
+)
+
+func init() {
+	mgoVersion = flag.String("mongo.version", "latest", "The version of mongo to run for unit tests")
+}
+
 // WithDB will set up a test DB instance and pass it to `f` callback as
 // `dbtest`. Once `f()` is finished, the DB will be cleaned up. Value returned
 // from `f()` is obtained as return status of a call to WithDB().
 func WithDB(f func(dbtest TestDBRunner) int) int {
 	var runner TestDBRunner
+	var mgoURL = "mongodb://localhost"
+	var cmd *exec.Cmd
 	if url, ok := os.LookupEnv("TEST_MONGO_URL"); ok {
-		clientOpts := options.Client().
-			ApplyURI(url)
-		client, err := mongo.Connect(context.Background(), clientOpts)
-		if err != nil {
-			panic(err)
-		}
-		runner = (*dbClientFromEnv)(client)
+		mgoURL = url
 	} else {
 		// Fallback to running mongod on host
-		dbdir, _ := ioutil.TempDir("", "dbsetup-test")
-		db := &dbtest.DBServer{}
-		db.SetPath(dbdir)
-		runner = db
-
-		defer os.RemoveAll(dbdir)
-		defer db.Stop()
-
+		cmd = exec.Command(
+			"docker", "run",
+			"--rm",
+			"--name=mongo",
+			"--network=host",
+			fmt.Sprintf("mongo:%s", *mgoVersion))
+		if err := cmd.Start(); err != nil {
+			panic(err)
+		}
 	}
+	clientOpts := options.Client().
+		ApplyURI(mgoURL)
+	client, err := mongo.Connect(context.Background(), clientOpts)
+	if err != nil {
+		panic(err)
+	}
+	runner = (*dbClientFromEnv)(client)
 
 	return f(runner)
 }
